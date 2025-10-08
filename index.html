@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Армянский словарик</title>
+
+<!-- Manifest for PWA -->
+<link rel="manifest" href="./manifest.json">
+
+<!-- Google Fonts: Ubuntu (cached by service worker for offline after first load) -->
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+<style>
+:root{
+--bg: #fbfcfd;
+--text:#0d1117;
+--muted:#5b6470;
+--accent:#2b7cff;
+--font-size:16px; /* базовый размер для слов/переводов */
+--header-size: calc(var(--font-size) + 2px); /* заголовок на 2 единицы больше */
+--gap:16px;
+--section-gap:24px;
+--container-max:960px;
+}
+
+html,body{
+height:100%;
+margin:0;
+background:var(--bg);
+color:var(--text);
+font-family: 'Ubuntu', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+-webkit-font-smoothing:antialiased;
+-moz-osx-font-smoothing:grayscale;
+font-size:var(--font-size);
+line-height:1.4;
+}
+
+.wrap{
+max-width:var(--container-max);
+margin:18px auto;
+padding:18px;
+box-sizing:border-box;
+}
+
+header{
+display:flex;
+gap:12px;
+align-items:center;
+justify-content:space-between;
+margin-bottom:14px;
+}
+header h1{
+margin:0;
+font-size:18px;
+font-weight:600;
+}
+.controls{
+display:flex;
+gap:8px;
+align-items:center;
+}
+
+.card{
+background: #fff;
+border-radius:10px;
+padding:12px;
+box-shadow: 0 1px 4px rgba(12,20,32,0.06);
+margin-bottom:12px;
+}
+
+form.add{
+display:flex;
+gap:8px;
+align-items:center;
+flex-wrap:wrap;
+}
+form.add input[type="text"]{
+padding:10px 12px;
+border-radius:8px;
+border:1px solid #e6e9ee;
+font-size:var(--font-size);
+min-width:180px;
+flex:1 1 220px;
+box-sizing:border-box;
+}
+form.add button{
+padding:10px 14px;
+border-radius:8px;
+border:0;
+background:var(--accent);
+color:white;
+font-weight:600;
+cursor:pointer;
+}
+.searchRow{
+display:flex;
+gap:8px;
+align-items:center;
+}
+.searchRow input{
+padding:10px 12px;
+border-radius:8px;
+border:1px solid #e6e9ee;
+min-width:220px;
+flex:1;
+}
+
+main.dictionary{
+margin-top:12px;
+}
+
+.letter-section{
+margin-top:var(--section-gap);
+padding-top:8px;
+border-top:1px dashed rgba(30,40,60,0.03);
+}
+
+.letter-title{
+display:flex;
+gap:10px;
+align-items:baseline;
+margin-bottom:8px;
+}
+.letter-title .big{
+font-size:var(--header-size);
+font-weight:700;
+letter-spacing:0.6px;
+}
+.letter-title .small{
+font-size:var(--font-size);
+color:var(--muted);
+margin-left:6px;
+}
+
+.word-row{
+display:flex;
+gap:10px;
+align-items:center;
+padding:8px 6px;
+border-radius:6px;
+}
+.word-row:nth-child(odd){
+background: transparent;
+}
+.word-main{
+font-size:var(--font-size);
+font-weight:500;
+}
+.word-translate{
+color:var(--muted);
+font-size:var(--font-size);
+flex:0 0 auto;
+margin-left:6px;
+}
+
+.no-words{
+color:var(--muted);
+padding:8px 6px;
+font-style:italic;
+}
+
+footer.small{
+margin-top:18px;
+font-size:13px;
+color:var(--muted);
+}
+
+/* responsive */
+@media (max-width:560px){
+header{flex-direction:column; align-items:flex-start; gap:10px;}
+form.add{flex-direction:column; align-items:stretch;}
+.searchRow{width:100%;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Армянский словарик — мини</h1>
+<div class="controls">
+<div style="font-size:13px;color:var(--muted)">Offline PWA</div>
+</div>
+</header>
+
+<div class="card">
+<form id="addForm" class="add" onsubmit="return false;">
+<input id="inputAr" type="text" placeholder="Армянское слово (сначала армянское)" autocomplete="off" inputmode="text" />
+<input id="inputRu" type="text" placeholder="Перевод на русский" autocomplete="off" inputmode="text" />
+<button id="addBtn" type="button">Добавить</button>
+</form>
+<div style="height:8px"></div>
+<div class="searchRow">
+<input id="search" type="search" placeholder="Поиск по армянскому и русскому..." />
+<button id="clearSearch" title="Сбросить поиск" style="padding:10px;border-radius:8px;border:1px solid #e6e9ee;background:#fff;cursor:pointer">✕</button>
+</div>
+</div>
+
+<main id="dictionary" class="dictionary"></main>
+
+<div class="small footer">
+<div>Данные хранятся локально в браузере (localStorage). Для офлайн-доступа — установи сайт как приложение (Add to Home Screen).</div>
+<div style="margin-top:6px">Алфавит: стандартный порядок армянских букв. Источник порядка: Wikipedia. [oai_citation:1‡Википедия](https://en.wikipedia.org/wiki/Armenian_alphabet?utm_source=chatgpt.com)</div>
+</div>
+</div>
+
+<script>
+/* ====== Конфигурация алфавита (заглавная + строчная) ======
+Порядок и набор букв взят из общедоступных источников (Wikipedia и др.)
+Массив letters содержит объекты {upper, lower, key} key используется для группировки.
+*/
+const letters = [
+{upper:'Ա', lower:'ա', key:'Ա'},
+{upper:'Բ', lower:'բ', key:'Բ'},
+{upper:'Գ', lower:'գ', key:'Գ'},
+{upper:'Դ', lower:'դ', key:'Դ'},
+{upper:'Ե', lower:'ե', key:'Ե'},
+{upper:'Զ', lower:'զ', key:'Զ'},
+{upper:'Է', lower:'է', key:'Է'},
+{upper:'Ը', lower:'ը', key:'Ը'},
+{upper:'Թ', lower:'թ', key:'Թ'},
+{upper:'Ժ', lower:'ժ', key:'Ժ'},
+{upper:'Ի', lower:'ի', key:'Ի'},
+{upper:'Լ', lower:'լ', key:'Լ'},
+{upper:'Խ', lower:'խ', key:'Խ'},
+{upper:'Ծ', lower:'ծ', key:'Ծ'},
+{upper:'Կ', lower:'կ', key:'Կ'},
+{upper:'Հ', lower:'հ', key:'Հ'},
+{upper:'Ձ', lower:'ձ', key:'Ձ'},
+{upper:'Ղ', lower:'ղ', key:'Ղ'},
+{upper:'Ճ', lower:'ճ', key:'Ճ'},
+{upper:'Մ', lower:'մ', key:'Մ'},
+{upper:'Յ', lower:'յ', key:'Յ'},
+{upper:'Ն', lower:'ն', key:'Ն'},
+{upper:'Շ', lower:'շ', key:'Շ'},
+{upper:'Ո', lower:'ո', key:'Ո'},
+{upper:'Չ', lower:'չ', key:'Չ'},
+{upper:'Պ', lower:'պ', key:'Պ'},
+{upper:'Ջ', lower:'ջ', key:'Ջ'},
+{upper:'Ռ', lower:'ռ', key:'Ռ'},
+{upper:'Ս', lower:'ս', key:'Ս'},
+{upper:'Վ', lower:'վ', key:'Վ'},
+{upper:'Տ', lower:'տ', key:'Տ'},
+{upper:'Ր', lower:'ր', key:'Ր'},
+{upper:'Ց', lower:'ց', key:'Ց'},
+{upper:'Ւ', lower:'ւ', key:'Ւ'},
+{upper:'Փ', lower:'փ', key:'Փ'},
+{upper:'Ք', lower:'ք', key:'Ք'},
+{upper:'Օ', lower:'օ', key:'Օ'},
+{upper:'Ֆ', lower:'ֆ', key:'Ֆ'}
+];
+
+// localStorage key
+const STORAGE_KEY = 'armenian-mini-dict-v1';
+
+// DOM
+const dictEl = document.getElementById('dictionary');
+const inputAr = document.getElementById('inputAr');
+const inputRu = document.getElementById('inputRu');
+const addBtn = document.getElementById('addBtn');
+const searchInput = document.getElementById('search');
+const clearSearchBtn = document.getElementById('clearSearch');
+
+// load on start
+let words = loadWords();
+renderDictionary();
+
+// add event
+addBtn.addEventListener('click', () => {
+const armenian = inputAr.value.trim();
+const ru = inputRu.value.trim();
+if(!armenian){
+inputAr.focus();
+return alert('Введите армянское слово.');
+}
+if(!ru){
+inputRu.focus();
+return alert('Введите перевод на русский.');
+}
+
+// create entry
+const entry = {
+id: Date.now(),
+armenian,
+ru,
+created: new Date().toISOString()
+};
+
+words.push(entry);
+persist();
+inputAr.value = '';
+inputRu.value = '';
+inputAr.focus();
+renderDictionary();
+});
+
+// search handling (real-time)
+searchInput.addEventListener('input', () => {
+renderDictionary();
+});
+clearSearchBtn.addEventListener('click', () => {
+searchInput.value = '';
+renderDictionary();
+searchInput.focus();
+});
+
+// persistence
+function loadWords(){
+try{
+const raw = localStorage.getItem(STORAGE_KEY);
+if(!raw) return [];
+return JSON.parse(raw);
+}catch(e){
+console.error(e);
+return [];
+}
+}
+function persist(){
+localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+}
+
+// helper: get first Armenian letter (normalized)
+function firstArmenianLetter(text){
+if(!text) return null;
+// Trim, take first letter that is a letter (skip spaces/punctuation)
+for(let ch of text.trim()){
+// If ch is a letter in our known lowercase or uppercase map -> return group key
+for(let l of letters){
+if(ch === l.upper || ch === l.lower) return l.key;
+}
+// Accept uppercase/lowercase variants normalized by Unicode
+const up = ch.toUpperCase();
+for(let l of letters){
+if(up === l.upper) return l.key;
+}
+// Otherwise skip character (punctuation)
+}
+return null;
+}
+
+// filter & render
+function renderDictionary(){
+const q = searchInput.value.trim().toLowerCase();
+dictEl.innerHTML = '';
+
+// build groups according to letters array order
+for(let section of letters){
+const sectionKey = section.key;
+// get words for this section
+const items = words.filter(w => {
+const fk = firstArmenianLetter(w.armenian);
+return fk === sectionKey;
+});
+
+// apply search filter if any (search in armenian or ru)
+const shown = items.filter(w => {
+if(!q) return true;
+return w.armenian.toLowerCase().includes(q) || w.ru.toLowerCase().includes(q);
+});
+
+// If none and no search, still render empty section? Spec: "Между словами, начинающимися с разных букв, небольшие отступы." They want sections for letters; we'll show section title always but if empty show hint.
+const sectionEl = document.createElement('section');
+sectionEl.className = 'letter-section';
+// header
+const header = document.createElement('div');
+header.className = 'letter-title';
+header.innerHTML = `<div class="big">${section.upper} ${section.lower}</div><div class="small">${section.upper}${section.lower ? ' — ' + section.lower : ''}</div>`;
+sectionEl.appendChild(header);
+
+if(shown.length === 0){
+const no = document.createElement('div');
+no.className = 'no-words';
+if(q){
+no.textContent = 'Нет совпадений в разделе для буквы ' + section.upper;
+} else {
+no.textContent = 'Пока нет слов, начинающихся на эту букву.';
+}
+sectionEl.appendChild(no);
+} else {
+const list = document.createElement('div');
+for(let it of shown){
+const row = document.createElement('div');
+row.className = 'word-row card';
+row.style.margin = '6px 0';
+row.innerHTML = `<div style="flex:1">
+<div class="word-main">${escapeHtml(it.armenian)}</div>
+</div>
+<div class="word-translate">${escapeHtml(it.ru)}</div>`;
+list.appendChild(row);
+}
+sectionEl.appendChild(list);
+}
+
+dictEl.appendChild(sectionEl);
+}
+}
+
+// small helper to escape HTML in user input
+function escapeHtml(s){
+return String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+}
+
+// register service worker for offline (if supported)
+if('serviceWorker' in navigator){
+navigator.serviceWorker.register('/service-worker.js')
+.then(reg => {
+console.log('SW registered', reg);
+}).catch(err => {
+console.warn('SW reg fail', err);
+});
+}
+
+// keyboard nicety: press Enter in translation field to add
+inputRu.addEventListener('keydown', (e)=>{
+if(e.key === 'Enter'){
+addBtn.click();
+}
+});
+
+</script>
+</body>
+</html>

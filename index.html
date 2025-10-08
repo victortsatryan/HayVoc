@@ -9,12 +9,13 @@
 <style>
 body { font-family: 'Ubuntu', sans-serif; background: #fefefe; margin: 20px; }
 h1 { font-size: 2em; text-align: center; }
-.letter { font-weight: bold; margin-top: 20px; }
+.letter { font-weight: bold; margin-top: 20px; font-size: 1.3em; }
 .word-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid #ddd; }
 .word-text { flex: 1; }
 .controls button { margin-left: 5px; }
 input { padding: 5px; margin: 5px 0; width: calc(100% - 12px); }
 #login-btn { margin-bottom: 10px; }
+#status { position: fixed; bottom: 10px; right: 10px; font-size: 12px; color: gray; }
 </style>
 </head>
 <body>
@@ -31,14 +32,15 @@ input { padding: 5px; margin: 5px 0; width: calc(100% - 12px); }
 </div>
 
 <div id="dictionary"></div>
+<div id="status">🟡 Оффлайн</div>
 
-<!-- Firebase -->
+<!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/12.3.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.3.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore-compat.js"></script>
 
-<!-- Firebase config + login -->
 <script>
+// Firebase config
 const firebaseConfig = {
 apiKey: "AIzaSyBkV7vEW7nJVA1cgnOqMvy_d_o93SHFhi8",
 authDomain: "hayvoc-be65a.firebaseapp.com",
@@ -48,12 +50,42 @@ messagingSenderId: "869545719945",
 appId: "1:869545719945:web:fa1ea0b01fa0f86ec62e58",
 measurementId: "G-17536XH7VE"
 };
+
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-let currentUser = null;
+// Включаем офлайн-поддержку Firestore
+db.enablePersistence()
+.then(() => console.log('📦 Offline persistence enabled'))
+.catch(err => {
+if (err.code === 'failed-precondition') {
+console.log('⚠️ Persistence работает только в одной вкладке');
+} else if (err.code === 'unimplemented') {
+console.log('⚠️ Этот браузер не поддерживает persistence');
+}
+});
 
+let currentUser = null;
+const dictionaryDiv = document.getElementById('dictionary');
+const searchInput = document.getElementById('search');
+const newWordHy = document.getElementById('new-word-hy');
+const newWordRu = document.getElementById('new-word-ru');
+const statusEl = document.getElementById('status');
+
+// Изменение статуса сети
+function updateStatus() {
+if (navigator.onLine) {
+statusEl.textContent = '🟢 Онлайн';
+} else {
+statusEl.textContent = '🟡 Оффлайн';
+}
+}
+window.addEventListener('online', updateStatus);
+window.addEventListener('offline', updateStatus);
+updateStatus();
+
+// Авторизация через Google
 document.getElementById('login-btn').addEventListener('click', () => {
 const provider = new firebase.auth.GoogleAuthProvider();
 auth.signInWithPopup(provider);
@@ -67,13 +99,9 @@ loadDictionary();
 } else {
 currentUser = null;
 document.getElementById('login-btn').style.display = 'block';
+dictionaryDiv.innerHTML = '';
 }
 });
-
-const dictionaryDiv = document.getElementById('dictionary');
-const searchInput = document.getElementById('search');
-const newWordHy = document.getElementById('new-word-hy');
-const newWordRu = document.getElementById('new-word-ru');
 
 // Добавить слово
 document.getElementById('add-word').addEventListener('click', () => {
@@ -88,7 +116,7 @@ newWordRu.value = '';
 });
 });
 
-// Загрузка словаря и слушатель изменений
+// Загрузка словаря (с realtime listener)
 function loadDictionary() {
 db.collection('users').doc(currentUser.uid).collection('words')
 .orderBy('hy')
@@ -107,7 +135,7 @@ const filtered = words.filter(w => w.hy.toLowerCase().includes(query) || w.ru.to
 
 const grouped = {};
 filtered.forEach(w => {
-const letter = w.hy[0].toUpperCase();
+const letter = w.hy[0]?.toUpperCase() || '?';
 if (!grouped[letter]) grouped[letter] = [];
 grouped[letter].push(w);
 });
@@ -161,12 +189,12 @@ db.collection('users').doc(currentUser.uid).collection('words').doc(word.id).del
 }
 
 searchInput.addEventListener('input', () => {
-loadDictionary(); // перерисовываем с фильтром
+loadDictionary();
 });
 </script>
 
+<!-- Регистрация service worker -->
 <script>
-// Регистрация service-worker
 if ('serviceWorker' in navigator) {
 navigator.serviceWorker.register('service-worker.js')
 .then(() => console.log('Service Worker зарегистрирован'))
